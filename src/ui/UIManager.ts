@@ -72,6 +72,8 @@ import type {
   FriendLookupResponse,
   FriendRequestEntry,
   KillFeedEntry,
+  MailboxStateSnapshot,
+  OutgoingFriendRequestEntry,
   PlayerGender,
   RankedMatchResultPayload,
   RankedProfile,
@@ -96,6 +98,13 @@ export interface UIManagerCallbacks {
   onLookupFriendById: (queryId: string) => Promise<FriendLookupResponse>;
   onSendFriendRequest: (targetPlayerId: string) => Promise<void>;
   onRespondFriendRequest: (requestId: string, accept: boolean) => Promise<void>;
+  onCancelFriendRequest: (requestId: string) => Promise<void>;
+  onRemoveFriend: (friendPlayerId: string) => Promise<void>;
+  onOpenMailbox?: () => Promise<void>;
+  onReadMail: (mailId: string) => Promise<void>;
+  onClaimMailReward: (mailId: string) => Promise<void>;
+  onArchiveMail: (mailId: string, archived: boolean) => Promise<void>;
+  onDeleteMail: (mailId: string) => Promise<void>;
   onMainMenuStartPressed: () => void;
   onCancelMainMenuQueue: () => void;
   onConfirmMapSelection: (mapId: MapId) => void;
@@ -437,12 +446,20 @@ export class UIManager implements Subsystem {
         onSendFriendRequest: (targetPlayerId) => this.callbacks.onSendFriendRequest(targetPlayerId),
         onRespondFriendRequest: (requestId, accept) =>
           this.callbacks.onRespondFriendRequest(requestId, accept),
+        onCancelFriendRequest: (requestId) => this.callbacks.onCancelFriendRequest(requestId),
+        onRemoveFriend: (friendPlayerId) => this.callbacks.onRemoveFriend(friendPlayerId),
+        onOpenMailbox: () => this.callbacks.onOpenMailbox?.() ?? Promise.resolve(),
+        onReadMail: (mailId) => this.callbacks.onReadMail(mailId),
+        onClaimMailReward: (mailId) => this.callbacks.onClaimMailReward(mailId),
+        onArchiveMail: (mailId, archived) => this.callbacks.onArchiveMail(mailId, archived),
+        onDeleteMail: (mailId) => this.callbacks.onDeleteMail(mailId),
       },
     );
     this.mainMenuScreen.setShopCosmetics(
       initialShopSnapshot.equippedAvatarId,
       initialShopSnapshot.equippedBannerId,
     );
+    this.mainMenuScreen.setCurrencyBalance(initialShopSnapshot.credits);
 
     this.emoteWheelOverlay = new EmoteWheelOverlay({
       onSelectEmote: (emoteId) => {
@@ -911,6 +928,7 @@ export class UIManager implements Subsystem {
     this.shopScreen.updateSnapshot(snapshot);
     this.vaultScreen.updateSnapshot(snapshot);
     this.mainMenuScreen.setShopCosmetics(snapshot.equippedAvatarId, snapshot.equippedBannerId);
+    this.mainMenuScreen.setCurrencyBalance(snapshot.credits);
     this.profileModal.setShopSnapshot(snapshot);
     this.testArenaHud.setLocalPlayerCosmetics(
       this.latestPlayerUsername,
@@ -943,6 +961,8 @@ export class UIManager implements Subsystem {
     screen = targetScreen;
     if (screen !== 'main-menu') {
       this.mainMenuScreen.setInventoryOpen(false);
+      this.mainMenuScreen.setMailboxOpen(false);
+      this.mainMenuScreen.setFriendsPanelOpen(false);
       this.mainMenuScreen.setEmotingState(null);
       this.emoteWheelOverlay.close(false);
       if (screen !== 'ranked') {
@@ -1028,7 +1048,11 @@ export class UIManager implements Subsystem {
   }
 
   isMainMenuModalOpen(): boolean {
-    return this.profileModal.isModalOpen() || this.mainMenuScreen.isInventoryModalOpen();
+    return (
+      this.profileModal.isModalOpen() ||
+      this.mainMenuScreen.isInventoryModalOpen() ||
+      this.mainMenuScreen.isMailboxModalOpen()
+    );
   }
 
   setLobbyEmotingState(emoteName: string | null): void {
@@ -1053,6 +1077,8 @@ export class UIManager implements Subsystem {
 
   showWaitingLobbyLoading(mapName: string, onComplete: () => void): boolean {
     this.mainMenuScreen.setInventoryOpen(false);
+    this.mainMenuScreen.setMailboxOpen(false);
+    this.mainMenuScreen.setFriendsPanelOpen(false);
     this.mainMenuScreen.setEmotingState(null);
     this.emoteWheelOverlay.close(false);
     this.profileModal.close();
@@ -1174,8 +1200,13 @@ export class UIManager implements Subsystem {
   setMainMenuFriendRequests(
     requests: FriendRequestEntry[],
     outgoingTargetIds?: string[],
+    outgoingRequests?: OutgoingFriendRequestEntry[],
   ): void {
-    this.mainMenuScreen.setFriendRequests(requests, outgoingTargetIds);
+    this.mainMenuScreen.setFriendRequests(requests, outgoingTargetIds, outgoingRequests);
+  }
+
+  setMainMenuMailboxState(snapshot: MailboxStateSnapshot): void {
+    this.mainMenuScreen.setMailboxState(snapshot);
   }
 
   setMainMenuFriendsPanelOpen(open: boolean): void {

@@ -222,7 +222,19 @@ html[data-compact-landscape="true"] .nr-lobby-avatar {
 
 html[data-compact-landscape="true"] .nr-lobby-top-btn {
   min-height: 34px;
+  min-width: 34px;
   padding: 0.25rem 0.5rem;
+}
+
+html[data-compact-landscape="true"] .nr-lobby-currency-pill {
+  min-height: 34px;
+  padding: 0.2rem 0.3rem 0.2rem 0.45rem;
+  gap: 0.35rem;
+}
+
+html[data-compact-landscape="true"] .nr-lobby-currency-pill [data-action="currency-add"] {
+  width: 24px;
+  height: 24px;
 }
 
 html[data-compact-landscape="true"] .nr-lobby-top-settings {

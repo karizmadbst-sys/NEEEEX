@@ -1,14 +1,14 @@
-import { GLOO_WALL_SKINS } from '../combat/GlooWallSkins';
-import { EMOTE_CATALOG } from '../emotes/EmoteCatalog';
-import type { R6Customization } from '../player/R6CustomizationData';
-import { WEAPON_BY_ID } from '../weapons/WeaponData';
-import { WEAPON_SKIN_CATALOG } from '../weapons/WeaponSkins';
+import { GLOO_WALL_SKINS } from '../combat/GlooWallSkins.ts';
+import { EMOTE_CATALOG } from '../emotes/EmoteCatalog.ts';
+import type { R6Customization } from '../player/R6CustomizationData.ts';
+import { WEAPON_BY_ID } from '../weapons/WeaponData.ts';
+import { WEAPON_SKIN_CATALOG } from '../weapons/WeaponSkins.ts';
 import {
   AVATAR_CATALOG,
   BANNER_CATALOG,
   DEFAULT_AVATAR_ID,
   DEFAULT_BANNER_ID,
-} from './AvatarBannerCatalog';
+} from './AvatarBannerCatalog.ts';
 
 export type ShopCategory =
   | 'featured'

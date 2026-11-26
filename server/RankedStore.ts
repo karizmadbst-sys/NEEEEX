@@ -1165,6 +1165,10 @@ export class RankedStore {
     };
     this.players.set(playerId, record);
     this.numericIdToPlayerId.set(numericId, playerId);
+    const normGuest = normalizeNexusUsername(record.name);
+    if (normGuest.valid && !this.usernameLowerToPlayerId.has(normGuest.lower)) {
+      this.usernameLowerToPlayerId.set(normGuest.lower, playerId);
+    }
     this.scheduleSave();
     return {
       profile: this.toPublicProfile(record),
@@ -1869,6 +1873,7 @@ export class RankedStore {
       relationStatus = 'friends';
     } else if (this.requestPairToId.has(`${caller.playerId}->${target.playerId}`)) {
       relationStatus = 'outgoing_pending';
+      pendingRequestId = this.requestPairToId.get(`${caller.playerId}->${target.playerId}`);
     } else {
       const incomingId = this.requestPairToId.get(`${target.playerId}->${caller.playerId}`);
       if (incomingId) {

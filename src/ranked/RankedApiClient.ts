@@ -700,18 +700,26 @@ export class RankedApiClient {
       }),
     });
     const data = (await res.json()) as {
+      creditsGranted?: number;
       creditsAwarded?: number;
       newBalance?: number;
+      state?: MailboxStateSnapshot;
       mailbox?: MailboxStateSnapshot;
       error?: string;
     };
-    if (!res.ok || !data.mailbox) {
+    const nextMailbox = data.state ?? data.mailbox;
+    if (!res.ok || !nextMailbox) {
       throw new Error(data.error || 'Could not claim reward.');
     }
     return {
-      creditsAwarded: typeof data.creditsAwarded === 'number' ? data.creditsAwarded : 0,
+      creditsAwarded:
+        typeof data.creditsGranted === 'number'
+          ? data.creditsGranted
+          : typeof data.creditsAwarded === 'number'
+            ? data.creditsAwarded
+            : 0,
       newBalance: typeof data.newBalance === 'number' ? data.newBalance : 0,
-      mailbox: data.mailbox,
+      mailbox: nextMailbox,
     };
   }
 

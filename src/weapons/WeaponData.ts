@@ -1,5 +1,5 @@
-import { resolvePublicAssetUrl } from '../config/RuntimeConfig';
-import type { WeaponDefinition } from './IWeaponSystem';
+import { resolvePublicAssetUrl } from '../config/RuntimeConfig.ts';
+import type { WeaponDefinition } from './IWeaponSystem.ts';
 
 export type {
   ScopeReticleStyle,
@@ -11,7 +11,7 @@ export type {
   WeaponScopeSpec,
   WeaponSoundSpec,
   WeaponSpreadSpec,
-} from './IWeaponSystem';
+} from './IWeaponSystem.ts';
 
 export const WEAPON_LIST: readonly WeaponDefinition[] = [
   {

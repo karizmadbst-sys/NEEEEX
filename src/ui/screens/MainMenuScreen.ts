@@ -171,7 +171,6 @@ export class MainMenuScreen {
   private lobbyToastTimer = 0;
   private lastFps = -1;
   private activeEmoteName: string | null = null;
-  private currencyBalance = 2000;
 
   private selectedMapId: MapId;
   private selectedMode: LobbyGameMode = 'battle-royale';
@@ -1659,7 +1658,6 @@ export class MainMenuScreen {
       typeof credits === 'number' && Number.isFinite(credits) && credits >= 0
         ? Math.floor(credits)
         : 0;
-    this.currencyBalance = clean;
     this.currencyAmountEl.textContent = clean.toLocaleString();
   }
 
@@ -2606,8 +2604,8 @@ export class MainMenuScreen {
     const inactiveTabCls =
       'px-3 py-1.5 rounded text-[10.5px] font-black tracking-wider uppercase border border-slate-700 bg-slate-900/80 text-slate-300 hover:border-slate-500 transition-colors';
 
-    const inboxItems = this.mailboxState.messages.filter((m) => !m.archived);
-    const archivedItems = this.mailboxState.messages.filter((m) => m.archived);
+    const inboxItems = this.mailboxState.messages.filter((m) => !m.isArchived);
+    const archivedItems = this.mailboxState.messages.filter((m) => m.isArchived);
     this.mailboxTabInboxBtn.textContent = `${i18n.t('mail.tabInbox')} (${inboxItems.length})`;
     this.mailboxTabArchivedBtn.textContent = `${i18n.t('mail.tabArchived')} (${archivedItems.length})`;
     this.mailboxTabInboxBtn.className = this.mailboxActiveTab === 'inbox' ? activeTabCls : inactiveTabCls;
@@ -2631,32 +2629,32 @@ export class MainMenuScreen {
     }
 
     let selectedMsg: MailboxMessageView | undefined = visibleMessages.find(
-      (m) => m.id === this.selectedMailId,
+      (m) => m.mailId === this.selectedMailId,
     );
     if (!selectedMsg) {
       selectedMsg = visibleMessages[0];
-      this.selectedMailId = selectedMsg.id;
-      if (!selectedMsg.read) {
-        void this.callbacks.onReadMail(selectedMsg.id).catch(() => {});
+      this.selectedMailId = selectedMsg.mailId;
+      if (!selectedMsg.isRead) {
+        void this.callbacks.onReadMail(selectedMsg.mailId).catch(() => {});
       }
     }
 
     this.mailboxListEl.innerHTML = visibleMessages
       .map((m) => {
-        const isSelected = m.id === selectedMsg?.id;
+        const isSelected = m.mailId === selectedMsg?.mailId;
         const cat = this.getMailboxCategoryBadge(m.category);
         const rewardChip =
-          m.rewardCredits > 0 && !m.rewardClaimed
+          m.rewardCredits > 0 && !m.isClaimed
             ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/25 border border-amber-400/80 text-[8.5px] font-black text-amber-200 tabular-nums shrink-0">+${m.rewardCredits.toLocaleString()}</span>`
             : '';
         return `
           <button
             type="button"
-            data-select-mail="${escapeHtml(m.id)}"
+            data-select-mail="${escapeHtml(m.mailId)}"
             class="w-full text-left px-2.5 py-2 rounded border transition-colors flex flex-col gap-1 ${
               isSelected
                 ? 'bg-sky-500/20 border-sky-400 shadow-sm'
-                : m.read
+                : m.isRead
                   ? 'bg-slate-900/65 border-slate-800 hover:border-slate-600'
                   : 'bg-slate-900/95 border-amber-400/50 hover:border-amber-300'
             }"
@@ -2664,7 +2662,7 @@ export class MainMenuScreen {
             <div class="flex items-center justify-between gap-1.5">
               <div class="flex items-center gap-1.5 min-w-0">
                 ${
-                  !m.read
+                  !m.isRead
                     ? '<span class="w-2 h-2 rounded-full bg-amber-400 shrink-0"></span>'
                     : '<span class="w-2 h-2 rounded-full bg-slate-700 shrink-0"></span>'
                 }
@@ -2673,8 +2671,8 @@ export class MainMenuScreen {
               </div>
               <span class="text-[9px] font-bold text-slate-400 tabular-nums shrink-0">${escapeHtml(this.formatMailDate(m.createdAt))}</span>
             </div>
-            <div class="text-xs font-extrabold ${m.read ? 'text-slate-200' : 'text-white'} truncate">${escapeHtml(m.title)}</div>
-            <div class="text-[10px] font-semibold text-slate-400 truncate">${escapeHtml(m.senderName)}</div>
+            <div class="text-xs font-extrabold ${m.isRead ? 'text-slate-200' : 'text-white'} truncate">${escapeHtml(m.title)}</div>
+            <div class="text-[10px] font-semibold text-slate-400 truncate">${escapeHtml(m.sender)}</div>
           </button>
         `;
       })
@@ -2685,9 +2683,9 @@ export class MainMenuScreen {
         const mailId = btn.dataset.selectMail;
         if (!mailId) return;
         this.selectedMailId = mailId;
-        const target = this.mailboxState.messages.find((m) => m.id === mailId);
-        if (target && !target.read) {
-          target.read = true;
+        const target = this.mailboxState.messages.find((m) => m.mailId === mailId);
+        if (target && !target.isRead) {
+          target.isRead = true;
           void this.callbacks.onReadMail(mailId).catch(() => {});
         }
         this.renderMailboxModal();
@@ -2696,12 +2694,12 @@ export class MainMenuScreen {
 
     const cat = this.getMailboxCategoryBadge(selectedMsg.category);
     const hasReward = selectedMsg.rewardCredits > 0;
-    const isClaiming = this.claimingMailIds.has(selectedMsg.id);
-    const isMutating = this.mutatingMailIds.has(selectedMsg.id);
-    const hasUnclaimedReward = hasReward && !selectedMsg.rewardClaimed;
+    const isClaiming = this.claimingMailIds.has(selectedMsg.mailId);
+    const isMutating = this.mutatingMailIds.has(selectedMsg.mailId);
+    const hasUnclaimedReward = hasReward && !selectedMsg.isClaimed;
 
     const rewardSectionHtml = hasReward
-      ? selectedMsg.rewardClaimed
+      ? selectedMsg.isClaimed
         ? `
           <div class="p-3 rounded-md bg-emerald-500/10 border border-emerald-400/50 flex items-center justify-between gap-2">
             <div class="flex items-center gap-2 text-emerald-200 text-xs font-black uppercase tracking-wider">
@@ -2720,7 +2718,7 @@ export class MainMenuScreen {
             <button
               type="button"
               data-action="claim-mail-reward"
-              data-mail-id="${escapeHtml(selectedMsg.id)}"
+              data-mail-id="${escapeHtml(selectedMsg.mailId)}"
               ${isClaiming ? 'disabled' : ''}
               class="px-3.5 py-2 rounded bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 text-xs font-black tracking-wider uppercase shadow-lg transition-colors disabled:opacity-50"
             >${escapeHtml(isClaiming ? i18n.t('mail.claimingBtn') : i18n.t('mail.claimBtn', { amount: selectedMsg.rewardCredits.toLocaleString() }))}</button>
@@ -2736,7 +2734,7 @@ export class MainMenuScreen {
         </div>
         <div>
           <h3 class="text-base font-black tracking-wide text-white">${escapeHtml(selectedMsg.title)}</h3>
-          <div class="text-[11px] font-bold text-sky-300 mt-0.5">${escapeHtml(i18n.t('mail.senderLabel'))}: ${escapeHtml(selectedMsg.senderName)}</div>
+          <div class="text-[11px] font-bold text-sky-300 mt-0.5">${escapeHtml(i18n.t('mail.senderLabel'))}: ${escapeHtml(selectedMsg.sender)}</div>
         </div>
         <div class="p-3.5 rounded-md bg-slate-950/75 border border-slate-800 text-xs sm:text-[13px] leading-relaxed text-slate-200 whitespace-pre-line">
           ${escapeHtml(selectedMsg.content)}
@@ -2751,15 +2749,15 @@ export class MainMenuScreen {
           <button
             type="button"
             data-action="archive-mail"
-            data-mail-id="${escapeHtml(selectedMsg.id)}"
-            data-next-archived="${String(!selectedMsg.archived)}"
+            data-mail-id="${escapeHtml(selectedMsg.mailId)}"
+            data-next-archived="${String(!selectedMsg.isArchived)}"
             ${isMutating ? 'disabled' : ''}
             class="nexus-btn-secondary px-3 py-1.5 rounded text-[10.5px] font-black tracking-wider uppercase min-h-[34px] disabled:opacity-50"
-          >${escapeHtml(selectedMsg.archived ? i18n.t('mail.unarchiveBtn') : i18n.t('mail.archiveBtn'))}</button>
+          >${escapeHtml(selectedMsg.isArchived ? i18n.t('mail.unarchiveBtn') : i18n.t('mail.archiveBtn'))}</button>
           <button
             type="button"
             data-action="delete-mail"
-            data-mail-id="${escapeHtml(selectedMsg.id)}"
+            data-mail-id="${escapeHtml(selectedMsg.mailId)}"
             ${isMutating || hasUnclaimedReward ? 'disabled' : ''}
             class="px-3 py-1.5 rounded border border-rose-400/70 bg-rose-500/20 hover:bg-rose-500/35 text-rose-100 text-[10.5px] font-black tracking-wider uppercase min-h-[34px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >${escapeHtml(i18n.t('mail.deleteBtn'))}</button>

@@ -72,8 +72,10 @@ import type {
   FriendRequestEntry,
   KillFeedEntry,
   LobbySnapshot,
+  MailboxStateSnapshot,
   MatchDropPhase,
   MatchLifecyclePhase,
+  OutgoingFriendRequestEntry,
   RankedAnimationState,
   RankedMapId,
   RankedMatchResultPayload,
@@ -213,6 +215,12 @@ export class Game implements Subsystem {
   private lobbyFriendsList: SquadFriendEntry[] = [];
   private lobbyFriendRequests: FriendRequestEntry[] = [];
   private lobbyOutgoingFriendTargetIds: string[] = [];
+  private lobbyOutgoingFriendRequests: OutgoingFriendRequestEntry[] = [];
+  private lobbyMailboxState: MailboxStateSnapshot = {
+    messages: [],
+    unreadCount: 0,
+    unclaimedRewardCount: 0,
+  };
   private lobbyReconnectTimer = 0;
   private lobbyPresencePromise: Promise<void> | null = null;
   private wasZipliningPrev = false;
@@ -751,6 +759,73 @@ export class Game implements Subsystem {
           } else {
             this.audioManager.playBack();
           }
+        },
+        onCancelFriendRequest: async (requestId) => {
+          if (this.firebaseActiveUid) {
+            await this.firebaseFriendsService.cancelFriendRequest(requestId);
+            this.audioManager.playBack();
+            return;
+          }
+          const state = await this.rankedApi.cancelFriendRequest(requestId);
+          this.applyFriendsSnapshotState(state);
+          this.audioManager.playBack();
+        },
+        onRemoveFriend: async (friendPlayerId) => {
+          if (this.firebaseActiveUid) {
+            await this.firebaseFriendsService.removeFriend(friendPlayerId);
+            this.audioManager.playBack();
+            return;
+          }
+          const state = await this.rankedApi.removeFriend(friendPlayerId);
+          this.applyFriendsSnapshotState(state);
+          this.audioManager.playBack();
+        },
+        onOpenMailbox: async () => {
+          await this.refreshMailboxState();
+        },
+        onReadMail: async (mailId) => {
+          let changed = false;
+          const nextMsgs = this.lobbyMailboxState.messages.map((m) => {
+            if (m.mailId === mailId && !m.isRead) {
+              changed = true;
+              return { ...m, isRead: true };
+            }
+            return m;
+          });
+          if (changed) {
+            this.applyMailboxState({
+              ...this.lobbyMailboxState,
+              messages: nextMsgs,
+              unreadCount: nextMsgs.filter((m) => !m.isRead && !m.isArchived).length,
+            });
+          }
+          const nextState = await this.rankedApi.markMailRead(mailId);
+          this.applyMailboxState(nextState);
+        },
+        onClaimMailReward: async (mailId) => {
+          const res = await this.rankedApi.claimMailReward(mailId);
+          this.shopManager.applyAuthoritativeCredits(res.newBalance);
+          this.applyMailboxState(res.mailbox);
+          this.audioManager.playDeploy();
+          this.uiManager.showLobbyToast(
+            i18n.t('mail.toast.claimed', { amount: res.creditsAwarded.toLocaleString() }),
+            'success',
+          );
+          if (this.firebaseActiveUid) {
+            await this.firebasePlayerService
+              .syncPrivateVault(this.firebaseActiveUid, this.shopManager.exportVaultState())
+              .catch(() => {});
+          }
+        },
+        onArchiveMail: async (mailId, archived) => {
+          const nextState = await this.rankedApi.archiveMail(mailId, archived);
+          this.applyMailboxState(nextState);
+          this.audioManager.playClick();
+        },
+        onDeleteMail: async (mailId) => {
+          const nextState = await this.rankedApi.deleteMail(mailId);
+          this.applyMailboxState(nextState);
+          this.audioManager.playBack();
         },
         onMainMenuStartPressed: () => this.handleMainMenuStartPressed(),
         onCancelMainMenuQueue: () => this.cancelMainMenuRankedQueue(),
@@ -1986,11 +2061,13 @@ export class Game implements Subsystem {
               this.cloudStateSyncTimer = 0;
             }
             this.latestFirebaseIdToken = null;
+            this.rankedApi.setFirebaseIdToken(null);
             this.preparedAuthSession = null;
             this.uiManager.stopPostLoginLoading();
             this.firebaseFriendsService.stop();
             this.firebasePartyService.stop();
             this.rankedApi.clearCredentials();
+            this.applyMailboxState({ messages: [], unreadCount: 0, unclaimedRewardCount: 0 });
             this.localRankedPlayerId = null;
             this.controlSettings.resetAllToDefaults();
             this.characterManager.unlockSystem.setDeveloperAccess(false);
@@ -2493,6 +2570,7 @@ export class Game implements Subsystem {
     this.lobbyPresencePromise = null;
     this.firebaseActiveUid = null;
     this.latestFirebaseIdToken = null;
+    this.rankedApi.setFirebaseIdToken(null);
     this.localRankedPlayerId = null;
     this.characterManager.unlockSystem.setDeveloperAccess(false);
     this.shopManager.setDeveloperMode(false);
@@ -2569,9 +2647,11 @@ export class Game implements Subsystem {
       if (!freshToken || !this.firebaseAuthService.getCurrentUser()?.emailVerified) {
         this.preparedAuthSession = null;
         this.latestFirebaseIdToken = null;
+        this.rankedApi.setFirebaseIdToken(null);
         throw new Error(i18n.t('auth.errSessionExpired'));
       }
       this.latestFirebaseIdToken = freshToken;
+      this.rankedApi.setFirebaseIdToken(freshToken);
 
       // 2. Load & verify permanent Player ID, profile, avatar, banner, level & XP
       this.uiManager.setPostLoginLoadingStage(i18n.t('loginLoad.stage.profile'));
@@ -2707,6 +2787,7 @@ export class Game implements Subsystem {
         throw new Error(i18n.t('loginLoad.errOnlineServices'));
       }
 
+      void this.refreshMailboxState();
       this.uiManager.markPostLoginDataReady();
     } catch (err) {
       if (this.isDisposed || attemptId !== this.loginAttemptNonce) return;
@@ -2752,6 +2833,7 @@ export class Game implements Subsystem {
     this.firebaseActiveUid = null;
     this.cloudStateHydratedUid = null;
     this.latestFirebaseIdToken = null;
+    this.rankedApi.setFirebaseIdToken(null);
     this.firebaseFriendsService.stop();
     this.firebasePartyService.stop();
     this.rankedApi.clearCredentials();
@@ -2760,7 +2842,13 @@ export class Game implements Subsystem {
     this.applyFriendsSnapshotState({
       friends: [],
       incomingRequests: [],
+      outgoingRequests: [],
       outgoingTargetIds: [],
+    });
+    this.applyMailboxState({
+      messages: [],
+      unreadCount: 0,
+      unclaimedRewardCount: 0,
     });
 
     this.controlSettings.resetAllToDefaults();
@@ -4991,6 +5079,7 @@ export class Game implements Subsystem {
       void this.firebaseAuthService.getIdToken(false).then((tok) => {
         if (tok && tok !== this.latestFirebaseIdToken) {
           this.latestFirebaseIdToken = tok;
+          this.rankedApi.setFirebaseIdToken(tok);
           if (this.rankedNetwork.state === 'connected') {
             this.rankedNetwork.updateFirebaseToken(tok);
           }
@@ -5070,15 +5159,41 @@ export class Game implements Subsystem {
     friends: SquadFriendEntry[];
     incomingRequests: FriendRequestEntry[];
     outgoingTargetIds: string[];
+    outgoingRequests?: OutgoingFriendRequestEntry[];
   }): void {
     this.lobbyFriendsList = state.friends;
     this.lobbyFriendRequests = state.incomingRequests;
     this.lobbyOutgoingFriendTargetIds = state.outgoingTargetIds;
+    if (Array.isArray(state.outgoingRequests)) {
+      this.lobbyOutgoingFriendRequests = state.outgoingRequests;
+    }
     this.uiManager.setMainMenuFriendsList(this.lobbyFriendsList);
     this.uiManager.setMainMenuFriendRequests(
       this.lobbyFriendRequests,
       this.lobbyOutgoingFriendTargetIds,
+      this.lobbyOutgoingFriendRequests,
     );
+  }
+
+  private applyMailboxState(state: MailboxStateSnapshot): void {
+    this.lobbyMailboxState = state;
+    this.uiManager.setMainMenuMailboxState(state);
+  }
+
+  private async refreshMailboxState(notifyOnNewUnread = false): Promise<void> {
+    if (this.isDisposed) return;
+    const prevUnread = this.lobbyMailboxState.unreadCount;
+    try {
+      const next = await this.rankedApi.fetchMailboxState();
+      if (this.isDisposed) return;
+      this.applyMailboxState(next);
+      if (notifyOnNewUnread && next.unreadCount > prevUnread) {
+        this.uiManager.showLobbyToast(i18n.t('mail.toast.newMail'), 'info');
+        this.audioManager.playClick();
+      }
+    } catch {
+      // Ignore transient mailbox sync failures
+    }
   }
 
   private scheduleLobbyPresenceReconnect(): void {
@@ -5106,6 +5221,7 @@ export class Game implements Subsystem {
               this.rankedNetwork.setSquadSize(this.lobbySquadSize);
             }
           }
+          void this.refreshMailboxState();
         } catch {
           if (!this.firebaseActiveUid) {
             const fallbackState = await this.rankedApi.fetchFriendsState().catch(() => null);
@@ -5113,6 +5229,7 @@ export class Game implements Subsystem {
               this.applyFriendsSnapshotState(fallbackState);
             }
           }
+          void this.refreshMailboxState();
           this.scheduleLobbyPresenceReconnect();
         } finally {
           this.lobbyPresencePromise = null;
@@ -5363,14 +5480,19 @@ export class Game implements Subsystem {
         const p = rawPayload as {
           requests?: FriendRequestEntry[];
           outgoingTargetIds?: string[];
+          outgoingRequests?: OutgoingFriendRequestEntry[];
         };
         this.lobbyFriendRequests = Array.isArray(p?.requests) ? p.requests : [];
         if (Array.isArray(p?.outgoingTargetIds)) {
           this.lobbyOutgoingFriendTargetIds = p.outgoingTargetIds;
         }
+        if (Array.isArray(p?.outgoingRequests)) {
+          this.lobbyOutgoingFriendRequests = p.outgoingRequests;
+        }
         this.uiManager.setMainMenuFriendRequests(
           this.lobbyFriendRequests,
           this.lobbyOutgoingFriendTargetIds,
+          this.lobbyOutgoingFriendRequests,
         );
         break;
       }
@@ -5385,6 +5507,7 @@ export class Game implements Subsystem {
           this.uiManager.setMainMenuFriendRequests(
             this.lobbyFriendRequests,
             this.lobbyOutgoingFriendTargetIds,
+            this.lobbyOutgoingFriendRequests,
           );
           this.audioManager.playClick();
         }
@@ -5397,6 +5520,10 @@ export class Game implements Subsystem {
         if (p?.accepted) {
           this.audioManager.playDeploy();
         }
+        break;
+      }
+      case 'mailbox:updated': {
+        void this.refreshMailboxState(true);
         break;
       }
       case 'squad:state': {
